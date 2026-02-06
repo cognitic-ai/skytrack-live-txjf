@@ -11,6 +11,9 @@
     "experiments": {
       "reactCompiler": true
     },
+    "web": {
+      "output": "server"
+    },
     "plugins": [
       "expo-font",
       "expo-image",

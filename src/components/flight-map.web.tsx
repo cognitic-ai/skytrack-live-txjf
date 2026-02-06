@@ -1,19 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View, useColorScheme } from "react-native";
-import * as L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import type * as LType from "leaflet";
 import { Aircraft } from "@/types/flight";
 import { UserLocation } from "@/hooks/use-user-location";
 
-// Fix leaflet default icon paths for Metro bundler
-L.Icon.Default.mergeOptions({
-  imagePath: window.location.origin,
-  iconUrl: require("leaflet/dist/images/marker-icon.png").uri,
-  iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png").uri,
-  shadowUrl: require("leaflet/dist/images/marker-shadow.png").uri,
-});
-
-function createPlaneIcon(track: number, isOnGround: boolean): L.DivIcon {
+function createPlaneIcon(
+  L: typeof LType,
+  track: number,
+  isOnGround: boolean
+): LType.DivIcon {
   const color = isOnGround ? "#8E8E93" : "#007AFF";
   return L.divIcon({
     className: "plane-icon",
@@ -38,42 +33,65 @@ export default function FlightMap({
   onSelectFlight,
 }: FlightMapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<L.Map | null>(null);
-  const markersRef = useRef<Map<string, L.Marker>>(new Map());
-  const tileLayerRef = useRef<L.TileLayer | null>(null);
-  const userMarkerRef = useRef<L.CircleMarker | null>(null);
-  const radiusCircleRef = useRef<L.Circle | null>(null);
-  const hasCenteredRef = useRef(false);
+  const mapInstanceRef = useRef<LType.Map | null>(null);
+  const leafletRef = useRef<typeof LType | null>(null);
+  const markersRef = useRef<Map<string, LType.Marker>>(new Map());
+  const tileLayerRef = useRef<LType.TileLayer | null>(null);
+  const userMarkerRef = useRef<LType.CircleMarker | null>(null);
+  const radiusCircleRef = useRef<LType.Circle | null>(null);
+  const [ready, setReady] = useState(false);
   const colorScheme = useColorScheme();
 
-  // Initialize map centered on user location
+  // Dynamically import Leaflet client-side only
   useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
+    if (typeof window === "undefined") return;
 
-    // Zoom 10 ≈ 30-mile view radius
-    const map = L.map(mapRef.current, {
-      zoomControl: false,
-      attributionControl: true,
-    }).setView([userLocation.latitude, userLocation.longitude], 10);
+    let cancelled = false;
 
-    L.control.zoom({ position: "bottomright" }).addTo(map);
-    mapInstanceRef.current = map;
-    hasCenteredRef.current = true;
+    (async () => {
+      const L = await import("leaflet");
+      await import("leaflet/dist/leaflet.css");
+
+      if (cancelled || !mapRef.current) return;
+
+      L.Icon.Default.mergeOptions({
+        imagePath: window.location.origin,
+        iconUrl: require("leaflet/dist/images/marker-icon.png").uri,
+        iconRetinaUrl: require("leaflet/dist/images/marker-icon-2x.png").uri,
+        shadowUrl: require("leaflet/dist/images/marker-shadow.png").uri,
+      });
+
+      const map = L.map(mapRef.current, {
+        zoomControl: false,
+        attributionControl: true,
+      }).setView([userLocation.latitude, userLocation.longitude], 10);
+
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+
+      mapInstanceRef.current = map;
+      leafletRef.current = L;
+      setReady(true);
+    })();
 
     return () => {
-      map.remove();
-      mapInstanceRef.current = null;
+      cancelled = true;
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+      leafletRef.current = null;
       markersRef.current.clear();
       userMarkerRef.current = null;
       radiusCircleRef.current = null;
-      hasCenteredRef.current = false;
+      setReady(false);
     };
   }, []);
 
   // Handle tile layer theme switching
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map) return;
+    const L = leafletRef.current;
+    if (!map || !L || !ready) return;
 
     if (tileLayerRef.current) {
       tileLayerRef.current.remove();
@@ -88,20 +106,20 @@ export default function FlightMap({
       attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
       maxZoom: 19,
     }).addTo(map);
-  }, [colorScheme]);
+  }, [colorScheme, ready]);
 
   // Update user location marker and radius circle
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map) return;
+    const L = leafletRef.current;
+    if (!map || !L || !ready) return;
 
-    const pos: L.LatLngExpression = [
+    const pos: LType.LatLngExpression = [
       userLocation.latitude,
       userLocation.longitude,
     ];
 
-    // 50nm radius circle
-    const radiusMeters = 50 * 1852; // 50 nautical miles in meters
+    const radiusMeters = 50 * 1852;
     if (radiusCircleRef.current) {
       radiusCircleRef.current.setLatLng(pos);
     } else {
@@ -116,7 +134,6 @@ export default function FlightMap({
       }).addTo(map);
     }
 
-    // User location dot
     if (userMarkerRef.current) {
       userMarkerRef.current.setLatLng(pos);
     } else {
@@ -129,22 +146,16 @@ export default function FlightMap({
         interactive: false,
       }).addTo(map);
     }
-
-    // Center map on first real location update
-    if (!hasCenteredRef.current) {
-      map.setView(pos, 10);
-      hasCenteredRef.current = true;
-    }
-  }, [userLocation]);
+  }, [userLocation, ready]);
 
   // Update aircraft markers
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map) return;
+    const L = leafletRef.current;
+    if (!map || !L || !ready) return;
 
     const currentHexes = new Set(flights.map((f) => f.hex));
 
-    // Remove stale markers
     markersRef.current.forEach((marker, hex) => {
       if (!currentHexes.has(hex)) {
         marker.remove();
@@ -152,13 +163,12 @@ export default function FlightMap({
       }
     });
 
-    // Add or update markers
     flights.forEach((ac) => {
       if (ac.lat == null || ac.lon == null) return;
 
       const existing = markersRef.current.get(ac.hex);
       const isOnGround = ac.alt_baro === "ground";
-      const icon = createPlaneIcon(ac.track ?? 0, isOnGround);
+      const icon = createPlaneIcon(L, ac.track ?? 0, isOnGround);
 
       if (existing) {
         existing.setLatLng([ac.lat, ac.lon]);
@@ -170,7 +180,7 @@ export default function FlightMap({
         markersRef.current.set(ac.hex, marker);
       }
     });
-  }, [flights, onSelectFlight]);
+  }, [flights, onSelectFlight, ready]);
 
   return (
     <View style={{ flex: 1 }}>

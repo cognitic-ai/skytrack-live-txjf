@@ -1,8 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { ADSBResponse, Aircraft } from "@/types/flight";
+import { Aircraft } from "@/types/flight";
 import { UserLocation } from "./use-user-location";
 
-const ADSB_API = "https://api.adsb.lol/v2";
 const RADIUS_NM = 50;
 
 // Haversine distance in nautical miles
@@ -36,38 +35,18 @@ function normalizePosition(ac: Aircraft): Aircraft {
   return ac;
 }
 
-async function fetchEndpoint(path: string): Promise<Aircraft[]> {
-  const response = await fetch(`${ADSB_API}${path}`);
-  if (!response.ok) {
-    throw new Error(`ADSB API error: ${response.status}`);
-  }
-  const data: ADSBResponse = await response.json();
-  return data.ac;
-}
-
 async function fetchFlights(location: UserLocation): Promise<Aircraft[]> {
-  // Fetch from multiple endpoints for a richer dataset
-  const [mil, pia] = await Promise.allSettled([
-    fetchEndpoint("/mil"),
-    fetchEndpoint("/pia"),
-  ]);
-
-  const allAircraft: Aircraft[] = [];
-  const seen = new Set<string>();
-
-  for (const result of [mil, pia]) {
-    if (result.status === "fulfilled") {
-      for (const ac of result.value) {
-        if (!seen.has(ac.hex)) {
-          seen.add(ac.hex);
-          allAircraft.push(normalizePosition(ac));
-        }
-      }
-    }
+  // Fetch from our server-side API route (avoids CORS)
+  const response = await fetch("/api/flights");
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
   }
+  const data = await response.json();
+
+  const aircraft: Aircraft[] = (data.ac ?? []).map(normalizePosition);
 
   // Filter to aircraft with valid positions within radius
-  return allAircraft.filter((ac) => {
+  return aircraft.filter((ac) => {
     if (typeof ac.lat !== "number" || typeof ac.lon !== "number") return false;
     if (ac.lat === 0 && ac.lon === 0) return false;
     return (
