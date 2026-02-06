@@ -1,88 +1,52 @@
 import { ThemeProvider } from "@/components/theme-provider";
-import MaterialIcons from "@expo/vector-icons/MaterialIcons";
-import { Tabs as WebTabs } from "expo-router/tabs";
-import { NativeTabs } from "expo-router/unstable-native-tabs";
-import { Platform, useWindowDimensions } from "react-native";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import Stack from "expo-router/stack";
+import * as AC from "@bacons/apple-colors";
+import { NativeStackNavigationOptions } from "@react-navigation/native-stack";
+import { isLiquidGlassAvailable } from "expo-glass-effect";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5_000,
+      gcTime: 30_000,
+    },
+  },
+});
+
+const AppleStackPreset: NativeStackNavigationOptions =
+  process.env.EXPO_OS !== "ios"
+    ? {}
+    : isLiquidGlassAvailable()
+    ? {
+        headerTransparent: true,
+        headerShadowVisible: false,
+        headerLargeTitleShadowVisible: false,
+        headerLargeStyle: { backgroundColor: "transparent" },
+        headerTitleStyle: { color: AC.label as any },
+        headerBlurEffect: "none",
+        headerBackButtonDisplayMode: "minimal",
+      }
+    : {
+        headerTransparent: true,
+        headerShadowVisible: true,
+        headerLargeTitleShadowVisible: false,
+        headerLargeStyle: { backgroundColor: "transparent" },
+        headerBlurEffect: "systemChromeMaterial",
+        headerBackButtonDisplayMode: "default",
+      };
 
 export default function Layout() {
   return (
-    <ThemeProvider>
-      <TabsLayout />
-    </ThemeProvider>
-  );
-}
-
-function TabsLayout() {
-  if (process.env.EXPO_OS === "web") {
-    return <WebTabsLayout />;
-  } else {
-    return <NativeTabsLayout />;
-  }
-}
-
-function WebTabsLayout() {
-  const { width } = useWindowDimensions();
-  const isMd = width >= 768;
-  const isLg = width >= 1024;
-
-  return (
-    <WebTabs
-      screenOptions={{
-        headerShown: false,
-        ...(isMd
-          ? {
-              tabBarPosition: "left",
-              tabBarVariant: "material",
-              tabBarLabelPosition: isLg ? undefined : "below-icon",
-            }
-          : {
-              tabBarPosition: "bottom",
-            }),
-      }}
-    >
-      <WebTabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-          tabBarIcon: (props) => <MaterialIcons {...props} name="home" />,
-        }}
-      />
-      <WebTabs.Screen
-        name="info"
-        options={{
-          title: "Info",
-          tabBarIcon: (props) => <MaterialIcons {...props} name="info" />,
-        }}
-      />
-    </WebTabs>
-  );
-}
-
-function NativeTabsLayout() {
-  return (
-    <NativeTabs>
-      <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          {...Platform.select({
-            ios: { sf: { default: "house", selected: "house.fill" } },
-            default: {
-              src: <NativeTabs.Trigger.VectorIcon family={MaterialIcons} name="home" />,
-            },
-          })}
-        />
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="info">
-        <NativeTabs.Trigger.Label>Info</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          {...Platform.select({
-            ios: { sf: "cursorarrow.rays" },
-            default: {
-              src: <NativeTabs.Trigger.VectorIcon family={MaterialIcons} name="info" />,
-            },
-          })}
-        />
-      </NativeTabs.Trigger>
-    </NativeTabs>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <Stack screenOptions={AppleStackPreset}>
+          <Stack.Screen
+            name="index"
+            options={{ headerShown: false }}
+          />
+        </Stack>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }
